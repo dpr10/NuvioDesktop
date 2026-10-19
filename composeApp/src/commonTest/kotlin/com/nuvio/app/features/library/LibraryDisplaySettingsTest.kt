@@ -1,5 +1,6 @@
 package com.nuvio.app.features.library
 
+import com.nuvio.app.features.watchprogress.WatchProgressEntry
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -52,6 +53,7 @@ class LibraryDisplaySettingsTest {
             LibrarySortOption.DEFAULT to listOf("zulu", "bravo", "alpha"),
             LibrarySortOption.ADDED_DESC to listOf("zulu", "alpha", "bravo"),
             LibrarySortOption.ADDED_ASC to listOf("bravo", "alpha", "zulu"),
+            LibrarySortOption.RECENTLY_PLAYED to listOf("zulu", "alpha", "bravo"),
             LibrarySortOption.RELEASED_DESC to listOf("alpha", "bravo", "zulu"),
             LibrarySortOption.RELEASED_ASC to listOf("zulu", "bravo", "alpha"),
             LibrarySortOption.TITLE_ASC to listOf("alpha", "bravo", "zulu"),
@@ -87,6 +89,9 @@ class LibraryDisplaySettingsTest {
         for (source in listOf(LibrarySourceMode.LOCAL, LibrarySourceMode.TRAKT, LibrarySourceMode.SIMKL)) {
             assertEquals(emptySet(), availableLibrarySortOptions(source).toSet() intersect released)
         }
+        for (source in LibrarySourceMode.entries) {
+            assertEquals(true, LibrarySortOption.RECENTLY_PLAYED in availableLibrarySortOptions(source))
+        }
         assertEquals(
             LibrarySortOption.RELEASED_ASC,
             effectiveLibrarySortOption(LibrarySortOption.RELEASED_ASC, LibrarySourceMode.MDBLIST),
@@ -116,6 +121,53 @@ class LibraryDisplaySettingsTest {
         assertEquals(
             listOf("oldest", "middle", "newest"),
             sortLibraryItems(input, LibrarySortOption.ADDED_ASC, LibrarySourceMode.TRAKT).map { it.id },
+        )
+    }
+
+    @Test
+    fun `recently played orders by the newer of added and playback time`() {
+        val items = listOf(
+            item("newer-added", savedAt = 3L),
+            item("newest-played", savedAt = 2L),
+            item("older-played", savedAt = 2L),
+            item("unplayed", savedAt = 2L),
+        )
+
+        assertEquals(
+            listOf("newest-played", "older-played", "newer-added", "unplayed"),
+            sortLibraryItems(
+                items = items,
+                selected = LibrarySortOption.RECENTLY_PLAYED,
+                sourceMode = LibrarySourceMode.LOCAL,
+                playbackRecencyByContentId = mapOf("newest-played" to 30L, "older-played" to 10L),
+            ).map { it.id },
+        )
+    }
+
+    @Test
+    fun `recently played uses the newest episode playback and default source tie break`() {
+        val playbackRecency = playbackRecencyByContentId(
+            listOf(
+                progress("series", "episode-1", 10L),
+                progress("series", "episode-2", 40L),
+                progress("movie", "movie", 40L),
+            ),
+        )
+        val listKey = "watchlist"
+        val items = listOf(
+            item("series", savedAt = 5L).copy(listRanks = mapOf(listKey to 2)),
+            item("movie", savedAt = 5L).copy(listRanks = mapOf(listKey to 1)),
+        )
+
+        assertEquals(
+            listOf("movie", "series"),
+            sortLibraryItems(
+                items = items,
+                selected = LibrarySortOption.RECENTLY_PLAYED,
+                sourceMode = LibrarySourceMode.MDBLIST,
+                listKey = listKey,
+                playbackRecencyByContentId = playbackRecency,
+            ).map { it.id },
         )
     }
 
@@ -205,7 +257,7 @@ class LibraryDisplaySettingsTest {
     fun `display settings payload round trips and invalid values fall back safely`() {
         val state = LibraryDisplaySettingsUiState(
             layoutMode = LibraryLayoutMode.VERTICAL,
-            sortOption = LibrarySortOption.TITLE_DESC,
+            sortOption = LibrarySortOption.RECENTLY_PLAYED,
         )
 
         assertEquals(state, decodeLibraryDisplaySettings(encodeLibraryDisplaySettings(state)))
@@ -230,5 +282,17 @@ class LibraryDisplaySettingsTest {
             releaseInfo = releaseInfo,
             savedAtEpochMs = savedAt,
             traktRank = traktRank,
+        )
+
+    private fun progress(parentMetaId: String, videoId: String, lastUpdated: Long): WatchProgressEntry =
+        WatchProgressEntry(
+            contentType = "series",
+            parentMetaId = parentMetaId,
+            parentMetaType = "series",
+            videoId = videoId,
+            title = parentMetaId,
+            lastPositionMs = 0L,
+            durationMs = 1L,
+            lastUpdatedEpochMs = lastUpdated,
         )
 }

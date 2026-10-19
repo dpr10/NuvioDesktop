@@ -27,6 +27,7 @@ import nuvio.composeapp.generated.resources.library_filter_sort
 import nuvio.composeapp.generated.resources.library_filter_type
 import nuvio.composeapp.generated.resources.library_sort_added_asc
 import nuvio.composeapp.generated.resources.library_sort_added_desc
+import nuvio.composeapp.generated.resources.library_sort_recently_played
 import nuvio.composeapp.generated.resources.library_sort_title_asc
 import nuvio.composeapp.generated.resources.library_sort_title_desc
 import nuvio.composeapp.generated.resources.library_sort_provider_order
@@ -173,6 +174,7 @@ private fun librarySortOptionLabel(option: LibrarySortOption): String =
         LibrarySortOption.DEFAULT -> stringResource(Res.string.library_sort_provider_order)
         LibrarySortOption.ADDED_DESC -> stringResource(Res.string.library_sort_added_desc)
         LibrarySortOption.ADDED_ASC -> stringResource(Res.string.library_sort_added_asc)
+        LibrarySortOption.RECENTLY_PLAYED -> stringResource(Res.string.library_sort_recently_played)
         LibrarySortOption.RELEASED_DESC -> stringResource(Res.string.library_sort_released_desc)
         LibrarySortOption.RELEASED_ASC -> stringResource(Res.string.library_sort_released_asc)
         LibrarySortOption.TITLE_ASC -> stringResource(Res.string.library_sort_title_asc)

@@ -8,6 +8,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import com.nuvio.app.features.watchprogress.WatchProgressEntry
 
 enum class LibraryLayoutMode {
     HORIZONTAL,
@@ -18,6 +19,7 @@ enum class LibrarySortOption {
     DEFAULT,
     ADDED_DESC,
     ADDED_ASC,
+    RECENTLY_PLAYED,
     RELEASED_DESC,
     RELEASED_ASC,
     TITLE_ASC,
@@ -112,39 +114,49 @@ internal fun sortLibraryItems(
     sourceMode: LibrarySourceMode,
     listKey: String? = null,
     providerOrder: Map<String, Int>? = null,
+    playbackRecencyByContentId: Map<String, Long> = emptyMap(),
 ): List<LibraryItem> =
     when (effectiveLibrarySortOption(selected, sourceMode)) {
-        LibrarySortOption.DEFAULT -> items.sortedWith(
-            compareBy<LibraryItem> { it.listRanks[listKey] ?: it.traktRank ?: Int.MAX_VALUE }
-                .thenByDescending { it.savedAtEpochMs }
-                .thenBy { libraryTitleTieBreakKey(it) }
-                .thenBy { it.id },
-        )
+        LibrarySortOption.DEFAULT -> items.sortedWith(libraryDefaultComparator(listKey))
         LibrarySortOption.ADDED_DESC -> items.sortedWith(
-            providerOrder?.let(::libraryProviderOrderComparator) ?: compareByDescending<LibraryItem> { it.savedAtEpochMs }
-                .thenBy { libraryTitleTieBreakKey(it) }
-                .thenBy { it.id },
+            providerOrder?.let(::libraryProviderOrderComparator)
+                ?: compareByDescending<LibraryItem> { it.savedAtEpochMs }
+                    .thenBy { libraryTitleTieBreakKey(it) }
+                    .thenBy { it.id },
         )
+
         LibrarySortOption.ADDED_ASC -> items.sortedWith(
             providerOrder?.let(::libraryProviderOrderComparator) ?: compareBy<LibraryItem> { it.savedAtEpochMs }
                 .thenBy { libraryTitleTieBreakKey(it) }
                 .thenBy { it.id },
         )
-        LibrarySortOption.RELEASED_DESC -> items.sortedWith(
-            providerOrder?.let(::libraryProviderOrderComparator) ?: compareByDescending<LibraryItem> { libraryReleaseYear(it) }
-                .thenBy { libraryTitleTieBreakKey(it) }
-                .thenBy { it.id },
+
+        LibrarySortOption.RECENTLY_PLAYED -> items.sortedWith(
+            compareByDescending<LibraryItem> { item ->
+                maxOf(item.savedAtEpochMs, playbackRecencyByContentId[item.id] ?: Long.MIN_VALUE)
+            }
+                .then(libraryDefaultComparator(listKey)),
         )
+
+        LibrarySortOption.RELEASED_DESC -> items.sortedWith(
+            providerOrder?.let(::libraryProviderOrderComparator)
+                ?: compareByDescending<LibraryItem> { libraryReleaseYear(it) }
+                    .thenBy { libraryTitleTieBreakKey(it) }
+                    .thenBy { it.id },
+        )
+
         LibrarySortOption.RELEASED_ASC -> items.sortedWith(
             providerOrder?.let(::libraryProviderOrderComparator)
                 ?: compareBy<LibraryItem, Int?>(nullsLast()) { libraryReleaseYear(it) }
                     .thenBy { libraryTitleTieBreakKey(it) }
                     .thenBy { it.id },
         )
+
         LibrarySortOption.TITLE_ASC -> items.sortedWith(
             compareBy<LibraryItem> { libraryTitleSortKey(it) }
                 .thenBy { it.id },
         )
+
         LibrarySortOption.TITLE_DESC -> items.sortedWith(
             compareByDescending<LibraryItem> { libraryTitleSortKey(it) }
                 .thenBy { it.id },
@@ -156,9 +168,19 @@ internal fun sortLibrarySections(
     selected: LibrarySortOption,
     sourceMode: LibrarySourceMode,
     providerOrders: Map<String, Map<String, Int>> = emptyMap(),
+    playbackRecencyByContentId: Map<String, Long> = emptyMap(),
 ): List<LibrarySection> =
     sections.map { section ->
-        section.copy(items = sortLibraryItems(section.items, selected, sourceMode, section.type, providerOrders[section.type]))
+        section.copy(
+            items = sortLibraryItems(
+                section.items,
+                selected,
+                sourceMode,
+                section.type,
+                providerOrders[section.type],
+                playbackRecencyByContentId,
+            ),
+        )
     }
 
 internal fun buildLibraryVerticalProjection(
@@ -168,6 +190,7 @@ internal fun buildLibraryVerticalProjection(
     selectedType: String?,
     sortOption: LibrarySortOption,
     providerOrders: Map<String, Map<String, Int>> = emptyMap(),
+    playbackRecencyByContentId: Map<String, Long> = emptyMap(),
 ): LibraryVerticalProjection {
     val availableSections = if (sourceMode.isRemoteTrackingSource) sections else emptyList()
     val selectedSection = if (sourceMode.isRemoteTrackingSource) {
@@ -207,6 +230,7 @@ internal fun buildLibraryVerticalProjection(
         sourceMode = sourceMode,
         listKey = selectedSection?.type,
         providerOrder = providerOrders[selectedSection?.type],
+        playbackRecencyByContentId = playbackRecencyByContentId,
     ).mapNotNull { item -> entryByKey[libraryDisplayItemKey(item)] }
 
     return LibraryVerticalProjection(
@@ -265,6 +289,18 @@ private fun libraryTitleTieBreakKey(item: LibraryItem): String =
     item.name
         .ifBlank { item.id }
         .lowercase()
+
+private fun libraryDefaultComparator(listKey: String?): Comparator<LibraryItem> =
+    compareBy<LibraryItem> { it.listRanks[listKey] ?: it.traktRank ?: Int.MAX_VALUE }
+        .thenByDescending { it.savedAtEpochMs }
+        .thenBy { libraryTitleTieBreakKey(it) }
+        .thenBy { it.id }
+
+internal fun playbackRecencyByContentId(entries: Collection<WatchProgressEntry>): Map<String, Long> =
+    entries
+        .filter { it.parentMetaId.isNotBlank() }
+        .groupBy(WatchProgressEntry::parentMetaId)
+        .mapValues { (_, entriesForContent) -> entriesForContent.maxOf(WatchProgressEntry::lastUpdatedEpochMs) }
 
 internal fun libraryDisplayItemKey(item: LibraryItem): String =
     "${item.type.normalizedLibraryType()}:${item.id.trim()}"

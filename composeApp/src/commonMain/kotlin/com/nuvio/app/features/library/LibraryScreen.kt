@@ -92,6 +92,7 @@ import com.nuvio.app.features.home.components.HomeSkeletonRow
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.tracking.TrackingRefreshIntent
 import com.nuvio.app.features.watched.WatchedRepository
+import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.features.watching.application.WatchingState
 import com.nuvio.app.core.poster.CustomPosterScreen
 import com.nuvio.app.core.poster.CustomPosterUrlRepository
@@ -140,6 +141,13 @@ fun LibraryScreen(
         WatchedRepository.uiState
     }.collectAsStateWithLifecycle()
     val fullyWatchedSeriesKeys by WatchedRepository.fullyWatchedSeriesKeys.collectAsStateWithLifecycle()
+    val watchProgressUiState by remember {
+        WatchProgressRepository.ensureLoaded()
+        WatchProgressRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val playbackRecencyByContentId = remember(watchProgressUiState.entries) {
+        playbackRecencyByContentId(watchProgressUiState.entries)
+    }
     val displaySettings by remember {
         LibraryDisplaySettingsRepository.ensureLoaded()
         LibraryDisplaySettingsRepository.uiState
@@ -185,13 +193,21 @@ fun LibraryScreen(
     }
     val providerOrders = rememberLibraryProviderOrders(uiState.sourceMode, orderListKeys, effectiveSortOption)
     val visibleSortOption = if (providerOrders.failed) LibrarySortOption.DEFAULT else effectiveSortOption
-    val sortedSections = remember(uiState.sections, displaySettings, uiState.sourceMode, sourceMode, providerOrders) {
+    val sortedSections = remember(
+        uiState.sections,
+        displaySettings,
+        uiState.sourceMode,
+        sourceMode,
+        providerOrders,
+        playbackRecencyByContentId,
+    ) {
         if (sourceMode == LibraryViewMode.Saved && displaySettings.layoutMode == LibraryLayoutMode.HORIZONTAL) {
             sortLibrarySections(
                 sections = uiState.sections,
                 selected = visibleSortOption,
                 sourceMode = uiState.sourceMode,
                 providerOrders = providerOrders.ranks,
+                playbackRecencyByContentId = playbackRecencyByContentId,
             )
         } else {
             emptyList()
@@ -205,6 +221,7 @@ fun LibraryScreen(
         displaySettings,
         sourceMode,
         providerOrders,
+        playbackRecencyByContentId,
     ) {
         if (sourceMode == LibraryViewMode.Saved && displaySettings.layoutMode == LibraryLayoutMode.VERTICAL) {
             buildLibraryVerticalProjection(
@@ -214,6 +231,7 @@ fun LibraryScreen(
                 selectedType = selectedLibraryType,
                 sortOption = visibleSortOption,
                 providerOrders = providerOrders.ranks,
+                playbackRecencyByContentId = playbackRecencyByContentId,
             )
         } else {
             LibraryVerticalProjection(
